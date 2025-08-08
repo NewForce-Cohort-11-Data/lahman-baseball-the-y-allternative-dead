@@ -10,6 +10,18 @@ SELECT *
 FROM homegames
 ORDER BY year DESC;
 
+SELECT *
+FROM appearances;
+
+SELECT *
+FROM homegames;
+
+SELECT *
+FROM teams;
+
+SELECT *
+FROM teamsfranchises;
+
 
 -- **Initial Questions**
 
@@ -24,14 +36,9 @@ FROM teams;
 
 -- 2. Find the name and height of the shortest player in the database. How many games did he play in? What is the name of the team for which he played?
 
-SELECT *
-FROM people
-JOIN appearances USING(playerid)
-WHERE playerid = 'gaedeed01';
+-- ANSWER: I know this story! :) Let's try Jon Rauch instead!
 
--- ANSWER: I know this story! :) Need to add query above though.
-
---trying something, learning how to do this for other players that have played for multiple teams MAX height = Jon Rauch
+--trying STRING_AGG, learning how to do this for players that have played for multiple teams, using MAX height = Jon Rauch
 --this is cool. returns the team names separated by commas
 WITH tallest_player AS (
     SELECT playerid, namefirst, namelast, height
@@ -42,20 +49,37 @@ SELECT
     tp.namefirst,
 	tp.namelast,
     tp.height,
-    SUM(b.G) AS total_games,
+    SUM(a.g_all) AS total_games,
     STRING_AGG(DISTINCT t.name, ', ') AS teams_played_for
 FROM 
     tallest_player tp
 JOIN 
-    Batting b ON tp.playerID = b.playerID
+    appearances a ON tp.playerID = a.playerID
 JOIN 
-    Teams t ON b.teamID = t.teamID AND b.yearID = t.yearID
+    Teams t ON a.teamID = t.teamID AND a.yearID = t.yearID
 GROUP BY 
     tp.nameFirst, tp.nameLast, tp.height;
 
-
-
-
+--Answering initial question with same structure
+WITH shortest_player AS (
+    SELECT playerid, namefirst, namelast, height
+    FROM people
+    WHERE height = (SELECT MIN(height) FROM people)
+)
+SELECT 
+    sp.namefirst,
+	sp.namelast,
+    sp.height,
+    SUM(a.g_all) AS total_games,
+    STRING_AGG(DISTINCT t.name, ', ') AS teams_played_for
+FROM 
+    shortest_player sp
+JOIN 
+    appearances a ON sp.playerID = a.playerID
+JOIN 
+    Teams t ON a.teamID = t.teamID AND a.yearID = t.yearID
+GROUP BY 
+    sp.nameFirst, sp.nameLast, sp.height;
 
 
 -- 3. Find all players in the database who played at Vanderbilt University. Create a list showing each player’s first and last names as well as the total salary they earned in the major leagues. Sort this list in descending order by the total salary earned. Which Vanderbilt player earned the most money in the majors?
@@ -63,7 +87,9 @@ GROUP BY
 --finding David Price in salaries table to find out what his total_salary_earned should be
 SELECT SUM(salary)::numeric::money
 FROM salaries
-WHERE playerid = 'priceda01';
+WHERE playerid = 'priceda01'; --should be $81M, not $245M
+--number I was originally getting without subquery
+--SELECT 81851296 * 3;
 
 --Finally, with some help!
 WITH vandy_players AS (
@@ -106,69 +132,333 @@ ORDER BY total_putouts DESC;
 
 -- 5. Find the average number of strikeouts per game by decade since 1920. Round the numbers you report to 2 decimal places. Do the same for home runs per game. Do you see any trends?
 
-
-
---trying to get each team by year. but if I change games to an odd number like 161 I'm still getting the same number. Do I have to average instead of dividing by game? this is totally wrong. start over tomorrow 8/7
-SELECT *
-	,yearid
-	,teamid
-	--so = strikeouts by batters
-	,ROUND((so/g), 2) AS batter_Ks_per_game
-	--soa = strikouts by pitchers
-	,ROUND((soa/g), 2) AS pitcher_Ks_per_game
-	--HR = homeruns by batters
-	,ROUND((hr/g), 2) AS batter_HRs_per_game
-	--HRA = homeruns allowed by pitchers
-	,ROUND((hra/g), 2) AS HR_allowed_by_pitchers
-	--shouldn't I have to divide all this by 2 since this is doubling everything for each team that played the game? Or only calculate either batters or pitchers, and not all four categories.
-FROM teams
-ORDER BY batter_Ks_per_game DESC NULLS LAST;
-
---trying average, changing to 161 instead of 162 games. still doesn't solve the problem
 SELECT
-	yearid
-	,teamid
-	--so = strikeouts by batters
-	,ROUND(AVG(so/161), 2) AS batter_Ks_per_game
-	--soa = strikouts by pitchers
-	,ROUND(AVG(soa/161), 2) AS pitcher_Ks_per_game
+	((yearid/10) *10)::TEXT || 's' AS decade,
+	--SO = strikeouts by batters
+	ROUND(SUM(so+soa)::NUMERIC / SUM(g)::NUMERIC, 2) AS avg_Ks_per_game,
 	--HR = homeruns by batters
-	,ROUND(AVG(hr/161), 2) AS batter_HRs_per_game
-	--HRA = homeruns allowed by pitchers
-	,ROUND(AVG(hra/161), 2) AS HR_allowed_by_pitchers
-	--shouldn't I have to divide all this by 2 since this is doubling everything for each team that played the game? Or only calculate either batters or pitchers, and not all four categories.
+	ROUND(SUM(hr+hra)::NUMERIC / SUM(g)::NUMERIC, 2) AS avg_HRs_per_game
 FROM teams
-GROUP BY yearid, teamid
-ORDER BY batter_Ks_per_game DESC NULLS LAST;
+WHERE yearid >= 1920
+GROUP BY (yearid/10)*10
+ORDER BY decade;
 
-
-SELECT 1543/159;
-
+--Allyson's so/g:
+WITH decades AS 
+(SELECT yearid,SUM(so) AS sum_so,SUM(soa) AS sum_soa,SUM(g) AS sum_g,
+CASE
+	WHEN yearid BETWEEN 1920 AND 1929 THEN '1920s'
+	WHEN yearid BETWEEN 1930 AND 1939 THEN '1930s'
+	WHEN yearid BETWEEN 1940 AND 1949 THEN '1940s'
+	WHEN yearid BETWEEN 1950 AND 1959 THEN '1950s'
+	WHEN yearid BETWEEN 1960 AND 1969 THEN '1960s'
+	WHEN yearid BETWEEN 1970 AND 1979 THEN '1970s'
+	WHEN yearid BETWEEN 1980 AND 1989 THEN '1980s'
+	WHEN yearid BETWEEN 1990 AND 1999 THEN '1990s'
+	WHEN yearid BETWEEN 2000 AND 2009 THEN '2000s'
+	WHEN yearid BETWEEN 2010 AND 2016 THEN '2010s'
+	ELSE 'pre_1920' END decade
+FROM teams
+WHERE yearid > 1919
+GROUP BY yearid)
+SELECT decade,ROUND(SUM(sum_so+sum_soa)/SUM(sum_g)::NUMERIC,2) AS so_per_game
+FROM decades
+GROUP BY decade
+ORDER BY decade;
 
 -- 6. Find the player who had the most success stealing bases in 2016, where __success__ is measured as the percentage of stolen base attempts which are successful. (A stolen base attempt results either in a stolen base or being caught stealing.) Consider only players who attempted _at least_ 20 stolen bases.
-	
 
+SELECT namefirst,
+	namelast,
+	namegiven,
+	birthcountry,
+	SB+CS AS stolen_base_attempts,
+	SB AS stolen_bases,
+	ROUND((SB::NUMERIC/(SB+CS))*100, 2) AS steal_success_rate
+FROM batting
+JOIN people USING(playerid)
+WHERE (SB + CS) >=20
+	AND yearid = 2016
+ORDER BY steal_success_rate DESC;
+	
 -- 7.  From 1970 – 2016, what is the largest number of wins for a team that did not win the world series? What is the smallest number of wins for a team that did win the world series? Doing this will probably result in an unusually small number of wins for a world series champion – determine why this is the case. Then redo your query, excluding the problem year. How often from 1970 – 2016 was it the case that a team with the most wins also won the world series? What percentage of the time?
 
+--maximum reg season wins to not win WS from 1970 to 2016
+SELECT yearid,
+	franchname,
+	MAX(w) AS wins
+FROM teams
+JOIN teamsfranchises USING(franchid)
+WHERE yearid BETWEEN 1970 AND 2016
+	AND wswin = 'N'
+GROUP BY teamID, franchname, yearid
+ORDER BY wins DESC;
+
+--minimum reg season wins to win WS from 1970 to 2016 excluding 1981
+SELECT yearid,
+	franchname,
+	MIN(w) AS wins
+FROM teams
+JOIN teamsfranchises USING(franchid)
+WHERE yearid BETWEEN 1970 AND 2016
+	AND wswin = 'Y'
+	AND yearid != 1981
+GROUP BY teamID, franchname, yearid
+ORDER BY wins;
+
+--did most wins in reg season win WS? RANK then WHERE RANK = 1 and WS = 'Y?'
+WITH reg_season_wins AS (
+SELECT yearid,
+	franchname,
+	w,
+	RANK() OVER (PARTITION BY yearid ORDER BY w DESC) AS reg_season_win_rank,
+	wswin
+FROM teams
+JOIN teamsfranchises USING(franchid)
+WHERE yearid BETWEEN 1970 AND 2016
+GROUP BY teamID, franchname, yearid, w, wswin
+)
+SELECT *
+FROM reg_season_wins
+WHERE reg_season_win_rank = 1
+	AND wswin = 'Y';
+
+--next step would be counting these 12 rows divided by counting yearid span in CTE? But what about 1994? Have to subtract it?
+SELECT ROUND((12::NUMERIC / (2016-1969-1)) *100, 2) AS percent_most_reg_season_wins_won_ws_1970_to_2016_not_including_1994;
+SELECT 2016-1970;
 
 -- 8. Using the attendance figures from the homegames table, find the teams and parks which had the top 5 average attendance per game in 2016 (where average attendance is defined as total attendance divided by number of games). Only consider parks where there were at least 10 games played. Report the park name, team name, and average attendance. Repeat for the lowest 5 average attendance.
 
+--high avg attendance
+SELECT
+	park_name,
+	f.franchname AS team_name,
+	SUM(h.attendance)/SUM(h.games) AS avg_attendance_per_game
+FROM homegames h
+JOIN parks p USING(park)
+JOIN teams t ON h.team = t.teamid
+JOIN teamsfranchises f ON t.franchid = f.franchid
+WHERE games >=10
+	AND year = 2016
+GROUP BY f.franchname, park_name
+ORDER BY avg_attendance_per_game DESC
+LIMIT 5;
+
+--low avg attendance
+SELECT
+	park_name,
+	f.franchname AS team_name,
+	SUM(h.attendance)/SUM(h.games) AS avg_attendance_per_game
+FROM homegames h
+JOIN parks p USING(park)
+JOIN teams t ON h.team = t.teamid
+JOIN teamsfranchises f ON t.franchid = f.franchid
+WHERE games >=10
+	AND year = 2016
+GROUP BY f.franchname, park_name
+ORDER BY avg_attendance_per_game
+LIMIT 5;
 
 -- 9. Which managers have won the TSN Manager of the Year award in both the National League (NL) and the American League (AL)? Give their full name and the teams that they were managing when they won the award.
 
+SELECT *
+FROM awardsmanagers
+ORDER BY yearid, lgid;
+
+-- Can use CTEs, but the output is wonky and it doesn't include some managers because the awardsmanagers table lgid only shows 'ML' for the earlier years because the award wasn't split by league until 1986. Go to bottom to see better query.
+WITH AL_TSN_MYA AS (
+	SELECT a.playerid,
+		p.namefirst || ' ' || p.namelast AS full_name,
+		a.lgid,
+		m.teamid,
+		a.yearid
+	FROM awardsmanagers a
+	JOIN people p USING(playerID)
+	JOIN managers m USING(playerID, yearid)
+	WHERE awardid = 'TSN Manager of the Year'
+		AND a.lgid = 'AL'
+		),
+NL_TSN_MYA AS (
+	SELECT a.playerid,
+		p.namefirst || ' ' || p.namelast AS full_name,
+		a.lgid,
+		m.teamid,
+		a.yearid
+	FROM awardsmanagers a
+	JOIN people p USING(playerID)
+	JOIN managers m USING(playerID, yearid)
+	WHERE awardid = 'TSN Manager of the Year'
+		AND a.lgid = 'NL'
+		)
+SELECT al.full_name,
+	al.teamid AS al_team,
+	al.yearid AS al_year,
+	nl.teamid AS nl_team,
+	nl.yearid AS nl_year
+FROM AL_TSN_MYA al
+JOIN NL_TSN_MYA nl ON al.playerid = nl.playerid;
+
+--EDA: Using UNION to look at both tables' data together
+SELECT *,
+	p.namefirst || ' ' || p.namelast AS full_name,
+	a.lgid,
+	m.teamid
+FROM awardsmanagers a
+JOIN people p USING(playerID)
+JOIN managers m USING(playerID, yearid)
+WHERE awardid = 'TSN Manager of the Year'
+	AND a.lgid = 'AL'
+UNION
+SELECT *,
+	p.namefirst || ' ' || p.namelast AS full_name,
+	a.lgid,
+	m.teamid
+FROM awardsmanagers a
+JOIN people p USING(playerID)
+JOIN managers m USING(playerID, yearid)
+WHERE awardid = 'TSN Manager of the Year'
+	AND a.lgid = 'NL';
+
+--looking up my favorite coach, Sparky Anderson
+SELECT *
+FROM awardsmanagers
+WHERE playerid = 'andersp01';
+
+--looking up coaches 
+SELECT *
+FROM awardsmanagers
+WHERE playerid IN ('coxbo01', 'larusto01', 'showabu99', 'leylaji99', 'pinielo01', 'melvibo01', 'johnsda02', 'maddojo99')
+ORDER BY playerid;
+
+
+--This solution returns a table that has lgid from teams table because 'ML' in awardsmanagers lgid
+WITH tsn AS (
+	SELECT
+		a.yearid,
+		a.playerid,
+		p.namefirst || ' ' || p.namelast AS full_name,
+		a.lgid AS award_league,
+		t.lgid AS actual_league,
+		t.teamid,
+		t.franchid,
+		a.awardid
+	FROM awardsmanagers a
+	JOIN people p USING(playerID)
+	JOIN managers m USING(playerID, yearid)
+	JOIN teams t 
+		ON m.teamid = t.teamid AND m.yearid = t.yearid
+	WHERE awardid = 'TSN Manager of the Year'
+	),
+both_leagues AS (
+	SELECT playerid
+	FROM tsn
+	GROUP BY playerid
+	HAVING COUNT(DISTINCT actual_league) >1
+	)	
+SELECT
+	tsn.full_name,
+	tsn.actual_league,
+	tsn.yearid,
+	tsn.teamid,
+	f.franchname,
+	tsn.awardid
+FROM tsn
+JOIN both_leagues bl ON tsn.playerid = bl.playerid
+JOIN teamsfranchises f ON tsn.franchid = f.franchid
+ORDER BY full_name, actual_league, yearid;
+
 -- 10. Find all players who hit their career highest number of home runs in 2016. Consider only players who have played in the league for at least 10 years, and who hit at least one home run in 2016. Report the players' first and last names and the number of home runs they hit in 2016.
+
+
+SELECT *
+FROM batting
+JOIN people USING(playerid);
+
+--building the filter for 10+ seasons
+SELECT
+	playerID,
+	COUNT(DISTINCT yearID) AS seasons_played
+FROM batting
+GROUP BY playerID
+HAVING COUNT(DISTINCT yearID) >= 10;
+
+--building the filter for HRs > 0 in 2016
+SELECT
+	playerID,
+	SUM(hr) AS hr
+FROM batting
+WHERE yearid = 2016
+GROUP BY playerid
+HAVING SUM(hr)>0;
+
+--building career MAX HR per player
+SELECT
+	playerID,
+	MAX(hr) AS maxhr
+FROM batting
+GROUP BY playerid
+ORDER BY max DESC;
+
+--ADDING THEM (ALL TOGETHER NOW)!
+WITH ten_plus_seasons AS (
+	SELECT
+		playerID,
+		COUNT(DISTINCT yearID) AS seasons_played
+	FROM batting
+	GROUP BY playerID
+	HAVING COUNT(DISTINCT yearID) >= 10
+	),
+HRs_in_2016 AS (
+	SELECT
+		playerID,
+		yearid,
+		SUM(hr) AS hr
+	FROM batting
+	WHERE yearid = 2016
+	GROUP BY playerid, yearid
+	HAVING SUM(hr)>0
+	),
+career_hr_max AS (
+	SELECT
+		playerID,
+		MAX(hr) AS maxhr
+	FROM batting
+	GROUP BY playerid
+	)
+SELECT
+	hr.yearid,
+	tps.seasons_played,
+	crm.maxhr,
+	p.namefirst,
+	p.namelast,
+	hr.hr AS hr_2016
+FROM HRs_in_2016 AS hr
+JOIN ten_plus_seasons AS tps USING(playerid)
+JOIN career_hr_max AS crm USING(playerid)
+JOIN people AS p USING(playerid)
+WHERE hr.hr = crm.maxhr
+ORDER BY hr DESC;
 
 
 -- **Open-ended questions**
 
 -- 11. Is there any correlation between number of wins and team salary? Use data from 2000 and later to answer this question. As you do this analysis, keep in mind that salaries across the whole league tend to increase together, so you may want to look on a year-by-year basis.
 
--- 12. In this question, you will explore the connection between number of wins and attendance.
---     <ol type="a">
---       <li>Does there appear to be any correlation between attendance at home games and number of wins? </li>
---       <li>Do teams that win the world series see a boost in attendance the following year? What about teams that made the playoffs? Making the playoffs means either being a division winner or a wild card winner.</li>
---     </ol>
 
+--look at player salaries by year
+SELECT
+	playerid,
+	yearid,
+	teamid,
+	teamid,
+	lgid,
+	salary::NUMERIC::MONEY
+FROM salaries s
+ORDER BY salary DESC;
+
+-- 12. In this question, you will explore the connection between number of wins and attendance.
+-- -- a.Does there appear to be any correlation between attendance at home games and number of wins? </li>
+-- -- b.Do teams that win the world series see a boost in attendance the following year? What about teams that made the playoffs? Making the playoffs means either being a division winner or a wild card winner.
 
 -- 13. It is thought that since left-handed pitchers are more rare, causing batters to face them less often, that they are more effective. Investigate this claim and present evidence to either support or dispute this claim. First, determine just how rare left-handed pitchers are compared with right-handed pitchers. Are left-handed pitchers more likely to win the Cy Young Award? Are they more likely to make it into the hall of fame?
 
