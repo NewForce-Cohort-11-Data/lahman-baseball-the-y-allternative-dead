@@ -56,7 +56,7 @@ FROM
 JOIN 
     appearances a ON tp.playerID = a.playerID
 JOIN 
-    Teams t ON a.teamID = t.teamID AND a.yearID = t.yearID
+    teams t ON a.teamID = t.teamID AND a.yearID = t.yearID
 GROUP BY 
     tp.nameFirst, tp.nameLast, tp.height;
 
@@ -77,7 +77,7 @@ FROM
 JOIN 
     appearances a ON sp.playerID = a.playerID
 JOIN 
-    Teams t ON a.teamID = t.teamID AND a.yearID = t.yearID
+    teams t ON a.teamID = t.teamID AND a.yearID = t.yearID
 GROUP BY 
     sp.nameFirst, sp.nameLast, sp.height;
 
@@ -116,7 +116,7 @@ ORDER BY ps.total_salary_earned DESC;
 -- 4. Using the fielding table, group players into three groups based on their position: label players with position OF as "Outfield", those with position "SS", "1B", "2B", and "3B" as "Infield", and those with position "P" or "C" as "Battery". Determine the number of putouts made by each of these three groups in 2016.
 
 SELECT
-	TO_CHAR(SUM(po), 'FM999,999,999') AS total_putouts,
+	SUM(po) AS total_putouts,
 	CASE
 		WHEN pos = 'OF' THEN 'Outfield'
 		WHEN pos IN ('SS', '1B', '2B', '3B') THEN 'Infield'
@@ -135,9 +135,9 @@ ORDER BY total_putouts DESC;
 SELECT
 	((yearid/10) *10)::TEXT || 's' AS decade,
 	--SO = strikeouts by batters
-	ROUND(SUM(so+soa)::NUMERIC / SUM(g)::NUMERIC, 2) AS avg_Ks_per_game,
+	ROUND(SUM(so+soa)::NUMERIC / SUM(g), 2) AS avg_Ks_per_game,
 	--HR = homeruns by batters
-	ROUND(SUM(hr+hra)::NUMERIC / SUM(g)::NUMERIC, 2) AS avg_HRs_per_game
+	ROUND(SUM(hr+hra)::NUMERIC / SUM(g), 2) AS avg_HRs_per_game
 FROM teams
 WHERE yearid >= 1920
 GROUP BY (yearid/10)*10
@@ -172,8 +172,8 @@ SELECT namefirst,
 	namelast,
 	namegiven,
 	birthcountry,
-	SB+CS AS stolen_base_attempts,
-	SB AS stolen_bases,
+	sb+cs AS stolen_base_attempts,
+	sb AS stolen_bases,
 	ROUND((SB::NUMERIC/(SB+CS))*100, 2) AS steal_success_rate
 FROM batting
 JOIN people USING(playerid)
@@ -225,6 +225,7 @@ WHERE reg_season_win_rank = 1
 
 --next step would be counting these 12 rows divided by counting yearid span in CTE? But what about 1994? Have to subtract it?
 SELECT ROUND((12::NUMERIC / (2016-1969-1)) *100, 2) AS percent_most_reg_season_wins_won_ws_1970_to_2016_not_including_1994;
+
 SELECT 2016-1970;
 
 -- 8. Using the attendance figures from the homegames table, find the teams and parks which had the top 5 average attendance per game in 2016 (where average attendance is defined as total attendance divided by number of games). Only consider parks where there were at least 10 games played. Report the park name, team name, and average attendance. Repeat for the lowest 5 average attendance.
@@ -338,14 +339,14 @@ WITH tsn AS (
 		a.playerid,
 		p.namefirst || ' ' || p.namelast AS full_name,
 		a.lgid AS award_league,
-		t.lgid AS actual_league,
+		t.lgid AS team_league,
 		t.teamid,
-		t.franchid,
+		t.name,
 		a.awardid
 	FROM awardsmanagers a
 	JOIN people p USING(playerID)
 	JOIN managers m USING(playerID, yearid)
-	JOIN teams t 
+	JOIN teams t
 		ON m.teamid = t.teamid AND m.yearid = t.yearid
 	WHERE awardid = 'TSN Manager of the Year'
 	),
@@ -353,19 +354,18 @@ both_leagues AS (
 	SELECT playerid
 	FROM tsn
 	GROUP BY playerid
-	HAVING COUNT(DISTINCT actual_league) >1
+	HAVING COUNT(DISTINCT team_league) >1
 	)	
 SELECT
 	tsn.full_name,
-	tsn.actual_league,
+	tsn.team_league,
 	tsn.yearid,
 	tsn.teamid,
-	f.franchname,
+	tsn.name AS team_name,
 	tsn.awardid
 FROM tsn
 JOIN both_leagues bl ON tsn.playerid = bl.playerid
-JOIN teamsfranchises f ON tsn.franchid = f.franchid
-ORDER BY full_name, actual_league, yearid;
+ORDER BY full_name, team_league, yearid;
 
 -- 10. Find all players who hit their career highest number of home runs in 2016. Consider only players who have played in the league for at least 10 years, and who hit at least one home run in 2016. Report the players' first and last names and the number of home runs they hit in 2016.
 
@@ -444,23 +444,160 @@ ORDER BY hr DESC;
 
 -- 11. Is there any correlation between number of wins and team salary? Use data from 2000 and later to answer this question. As you do this analysis, keep in mind that salaries across the whole league tend to increase together, so you may want to look on a year-by-year basis.
 
-
---look at player salaries by year
+--look at player salaries by year (26248 rows)
 SELECT
 	playerid,
 	yearid,
-	teamid,
 	teamid,
 	lgid,
 	salary::NUMERIC::MONEY
 FROM salaries s
 ORDER BY salary DESC;
 
+--look at team salaries by year (918 rows)
+SELECT
+	teamid,
+	yearid,
+	SUM(salary)::NUMERIC::MONEY AS salary
+FROM salaries s
+GROUP BY teamid, yearid
+ORDER BY salary DESC;
+
+
+--join teams and explore data (918 rows). (510 if you s.yearid >= 2000)
+WITH team_salaries AS(
+	SELECT
+		teamid,
+		yearid,
+		SUM(salary)::NUMERIC::MONEY AS salary
+	FROM salaries s
+	GROUP BY teamid, yearid
+	ORDER BY salary DESC
+	),
+spending_per_win AS (
+	SELECT
+		t.name AS team_name,
+		t.yearid AS year,
+		s.salary,
+		t.w AS wins,
+		s.salary/t.w AS win_cost,
+		*
+	FROM team_salaries s
+	JOIN teams t USING(teamid, yearid)
+	WHERE s.yearid >= 2000)
+SELECT *
+FROM spending_per_win
+ORDER BY win_cost;
+--Abandoning this for now. Will revisit later. 
+
+
+
 -- 12. In this question, you will explore the connection between number of wins and attendance.
--- -- a.Does there appear to be any correlation between attendance at home games and number of wins? </li>
+-- -- a.Does there appear to be any correlation between attendance at home games and number of wins?
 -- -- b.Do teams that win the world series see a boost in attendance the following year? What about teams that made the playoffs? Making the playoffs means either being a division winner or a wild card winner.
 
+
+--initial thoughts:
+--CTE with filter for playoff wins: playoff_teams
+WITH playoff_teams AS (
+	SELECT
+		teamid,
+		name,
+		yearid,
+		attendance,
+		wcwin,
+		divwin,
+		wswin
+	FROM teams
+	WHERE wcwin = 'Y' OR divwin = 'Y' OR wswin = 'Y'
+	)
+SELECT
+	pt.teamid,
+	pt.name,
+	pt.yearid AS playoff_year,
+	pt.attendance AS playoff_attendance,
+	t.yearid AS year_after_playoffs,
+	t.attendance AS attendance_after_playoffs,
+	(t.attendance - pt.attendance) AS attendance_diff
+FROM playoff_teams pt
+JOIN teams t
+	ON pt.teamid = t.teamid AND pt.yearid +1 = t.yearid --column with next year's attendance (can i use yearid + 1?): YES!
+ORDER BY attendance_diff DESC NULLS LAST;
+--a few things to account for during future analysis:
+--1981 shortened season
+--1994 no playoffs
+--WWII era attendance
+--what if the team changed parks?
+--database doesn't have park capacity, so normalizing against that would need additional data
+--COVID season if i decide to pull in more recent data?
+
+
+/*EDA
+--3006 rows total in homegames
+--2160 rows where homegames tbl attendance != teams tbl attendance
+SELECT *
+FROM homegames h
+JOIN teams t ON h.team = t.teamid AND h.year = t.yearid
+ORDER BY h.attendance DESC;
+
+SELECT *
+FROM homegames;
+
+SELECT *
+FROM teams;
+*/
+
+SELECT * 
+FROM teams
+ORDER BY ghome DESC NULLS LAST;
+
+
 -- 13. It is thought that since left-handed pitchers are more rare, causing batters to face them less often, that they are more effective. Investigate this claim and present evidence to either support or dispute this claim. First, determine just how rare left-handed pitchers are compared with right-handed pitchers. Are left-handed pitchers more likely to win the Cy Young Award? Are they more likely to make it into the hall of fame?
+
+SELECT DISTINCT(throws)
+FROM people;
+
+SELECT *
+FROM people
+WHERE throws = 'S';
+--Pat Venditte! Pitcher must declare what hand he will throw with for the entire at bat (barring injury)
+
+--this is 19112 rows for all players
+	namefirst || ' ' || namelast AS name,
+	--making this more fun
+	CASE
+		WHEN throws = 'L' THEN 'Lefty'
+		WHEN throws = 'R' THEN 'Righty'
+		WHEN throws = 'S' THEN 'Switch'
+		WHEN throws IS NULL THEN 'No Info'
+		ELSE 'something else'
+	END AS throwing_hand,
+	*
+FROM people p
+ORDER BY throwing_hand DESC;
+
+--pitchers
+SELECT 
+	DISTINCT pt.playerid,
+	p.namefirst || ' ' || p.namelast AS name,
+	p.throws
+FROM pitching pt
+JOIN people p USING(playerid)
+ORDER BY p.throws DESC NULLS LAST;
+		
+--cy young winners
+SELECT 
+	namefirst || ' ' || namelast AS name,
+	*
+FROM awardsplayers
+JOIN people USING(playerid)
+WHERE awardid = 'Cy Young Award';
+
+
+SELECT 
+	throws,
+	*
+FROM people;
 
 /*
 B
