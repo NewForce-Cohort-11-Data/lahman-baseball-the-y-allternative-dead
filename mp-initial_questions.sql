@@ -27,10 +27,23 @@ FROM teamsfranchises;
 
 -- 1. What range of years for baseball games played does the provided database cover? 
 
+--years from teams
 SELECT 
 	MIN(yearid) AS year_1,
 	MAX(yearid) AS year_n
 FROM teams;
+
+--years from homegames
+SELECT
+	MIN(year) AS first_year,
+	MAX(year) AS last_year	
+FROM homegames;
+
+--years from dates in homegames
+SELECT
+	EXTRACT(YEAR FROM MIN(span_first)) AS first_year,
+	EXTRACT(YEAR FROM MAX(span_last)) AS last_year	
+FROM homegames;
 
 --ANSWER: 1871-2016
 
@@ -134,13 +147,23 @@ ORDER BY total_putouts DESC;
 
 SELECT
 	((yearid/10) *10)::TEXT || 's' AS decade,
-	--SO = strikeouts by batters
+	--SO = strikeouts by batters -- SOA = strikeouts allowed by pitchers
 	ROUND(SUM(so+soa)::NUMERIC / SUM(g), 2) AS avg_Ks_per_game,
-	--HR = homeruns by batters
-	ROUND(SUM(hr+hra)::NUMERIC / SUM(g), 2) AS avg_HRs_per_game
+	--HR = homeruns by batters -- HRA = homeruns allowed by pitchers
+	ROUND(SUM(hr+hra)::NUMERIC / SUM(g), 2) AS avg_HRs_per_game,
+	--IF you want it by team, by game use EITHER SO or SOA. They will give you the same number
+	ROUND(SUM(so)::NUMERIC / SUM(g), 2) AS avg_Ks_per_game_per_team,
+	--IF you want it by team, by game use EITHER HR or HRA. They will give you the same number
+	ROUND(SUM(hr)::NUMERIC / SUM(g), 2) AS avg_HRs_per_game_per_team,
+	--IF you want it by team, by game use EITHER SO or SOA. They will give you the same number
+	ROUND(SUM(soa)::NUMERIC / SUM(g), 2) AS avg_Ks_per_game_per_team,
+	--IF you want it by team, by game use EITHER HR or HRA. They will give you the same number
+	ROUND(SUM(hra)::NUMERIC / SUM(g), 2) AS avg_HRs_per_game_per_team
+	--See how the numbers are exactly half of the avg per game?
+	--See how using EITHER HOA or HR give you the same value?
 FROM teams
 WHERE yearid >= 1920
-GROUP BY (yearid/10)*10
+GROUP BY decade
 ORDER BY decade;
 
 --Allyson's so/g:
@@ -171,7 +194,6 @@ ORDER BY decade;
 SELECT namefirst,
 	namelast,
 	namegiven,
-	birthcountry,
 	sb+cs AS stolen_base_attempts,
 	sb AS stolen_bases,
 	ROUND((SB::NUMERIC/(SB+CS))*100, 2) AS steal_success_rate
@@ -180,51 +202,80 @@ JOIN people USING(playerid)
 WHERE (SB + CS) >=20
 	AND yearid = 2016
 ORDER BY steal_success_rate DESC;
-	
+
+
 -- 7.  From 1970 – 2016, what is the largest number of wins for a team that did not win the world series? What is the smallest number of wins for a team that did win the world series? Doing this will probably result in an unusually small number of wins for a world series champion – determine why this is the case. Then redo your query, excluding the problem year. How often from 1970 – 2016 was it the case that a team with the most wins also won the world series? What percentage of the time?
 
 --maximum reg season wins to not win WS from 1970 to 2016
 SELECT yearid,
-	franchname,
+	name,
 	MAX(w) AS wins
 FROM teams
-JOIN teamsfranchises USING(franchid)
 WHERE yearid BETWEEN 1970 AND 2016
 	AND wswin = 'N'
-GROUP BY teamID, franchname, yearid
+GROUP BY teamID, name, yearid
 ORDER BY wins DESC;
 
 --minimum reg season wins to win WS from 1970 to 2016 excluding 1981
 SELECT yearid,
-	franchname,
+	name,
 	MIN(w) AS wins
 FROM teams
-JOIN teamsfranchises USING(franchid)
 WHERE yearid BETWEEN 1970 AND 2016
 	AND wswin = 'Y'
 	AND yearid != 1981
-GROUP BY teamID, franchname, yearid
+GROUP BY teamID, name, yearid
 ORDER BY wins;
 
 --did most wins in reg season win WS? RANK then WHERE RANK = 1 and WS = 'Y?'
 WITH reg_season_wins AS (
 SELECT yearid,
-	franchname,
+	name,
 	w,
 	RANK() OVER (PARTITION BY yearid ORDER BY w DESC) AS reg_season_win_rank,
 	wswin
 FROM teams
-JOIN teamsfranchises USING(franchid)
 WHERE yearid BETWEEN 1970 AND 2016
-GROUP BY teamID, franchname, yearid, w, wswin
+GROUP BY teamID, name, yearid, w, wswin
 )
 SELECT *
 FROM reg_season_wins
 WHERE reg_season_win_rank = 1
 	AND wswin = 'Y';
 
+
+
 --next step would be counting these 12 rows divided by counting yearid span in CTE? But what about 1994? Have to subtract it?
 SELECT ROUND((12::NUMERIC / (2016-1969-1)) *100, 2) AS percent_most_reg_season_wins_won_ws_1970_to_2016_not_including_1994;
+
+
+--Kyle's percentage
+WITH max_per_year AS (
+	SELECT
+		yearid,
+		MAX(w) max_wins
+	FROM
+		teams
+	WHERE 
+		yearid BETWEEN 1970 AND 2016
+	GROUP BY
+		yearid
+	ORDER BY
+		yearid
+)
+SELECT 
+	ROUND(((COUNT(yearid) / (2016-1970)::numeric)*100), 2) AS max_winner_percentage
+FROM
+	teams AS t
+INNER JOIN
+	max_per_year AS m
+	USING(yearid)
+WHERE 
+	yearid BETWEEN 1970 AND 2016
+	AND t.w = m.max_wins
+	AND wswin = 'Y';
+
+
 
 SELECT 2016-1970;
 
