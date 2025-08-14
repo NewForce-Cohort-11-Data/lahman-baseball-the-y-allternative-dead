@@ -383,7 +383,7 @@ WHERE playerid IN ('coxbo01', 'larusto01', 'showabu99', 'leylaji99', 'pinielo01'
 ORDER BY playerid;
 
 
---This solution returns a table that has lgid from teams table because 'ML' in awardsmanagers lgid
+--This solution returns a table that has lgid from the teams table because the TSN MYA didn't distinguish leagues up to 1986
 WITH tsn AS (
 	SELECT
 		a.yearid,
@@ -418,8 +418,36 @@ FROM tsn
 JOIN both_leagues bl ON tsn.playerid = bl.playerid
 ORDER BY full_name, team_league, yearid;
 
--- 10. Find all players who hit their career highest number of home runs in 2016. Consider only players who have played in the league for at least 10 years, and who hit at least one home run in 2016. Report the players' first and last names and the number of home runs they hit in 2016.
+--Megan's query uses STRING_AGG
+SELECT DISTINCT
+    CONCAT(p.namefirst, ' ', p.namelast) AS manager_name,
+    STRING_AGG(
+    a.lgid || ' ' || a.yearid::text || ' (' || t.name || ')',
+    ', ' ORDER BY a.yearid
+  ) AS award_seasons
+FROM
+    awardsmanagers AS a
+JOIN people AS p ON a.playerid = p.playerid
+JOIN managers AS m ON a.playerid = m.playerid AND a.yearid = m.yearid AND a.lgid = m.lgid
+JOIN teams AS t ON m.teamid = t.teamid AND m.yearid = t.yearid AND m.lgid = t.lgid
+WHERE
+    a.awardid = 'TSN Manager of the Year'
+    AND a.lgid IN ('AL', 'NL') 
+    AND a.playerid IN (
+        SELECT playerid
+        FROM awardsmanagers
+        WHERE awardid = 'TSN Manager of the Year'
+		AND lgid IN ('AL', 'NL')
+        GROUP BY playerid
+		HAVING COUNT(DISTINCT lgid) = 2
+    )
+GROUP BY 
+	p.namefirst, p.namelast
+ORDER BY
+    manager_name, award_seasons;
 
+
+-- 10. Find all players who hit their career highest number of home runs in 2016. Consider only players who have played in the league for at least 10 years, and who hit at least one home run in 2016. Report the players' first and last names and the number of home runs they hit in 2016.
 
 SELECT *
 FROM batting
@@ -489,6 +517,75 @@ JOIN career_hr_max AS crm USING(playerid)
 JOIN people AS p USING(playerid)
 WHERE hr.hr = crm.maxhr
 ORDER BY hr DESC;
+
+
+--Kyle's
+WITH career_high AS (
+	SELECT 
+		playerid,
+		MAX(hr) AS max_homeruns
+	FROM 
+		batting
+	WHERE
+		hr > 0
+	GROUP BY
+		playerid
+)
+SELECT 
+	namelast || ',' || ' ' || namefirst AS player_name,
+	max_homeruns
+FROM 
+	batting
+INNER JOIN
+	career_high
+	ON hr = max_homeruns AND batting.playerid = career_high.playerid
+INNER JOIN
+	people
+	ON batting.playerid = people.playerid
+WHERE 
+	yearid = 2016
+	AND ((finalgame::date) - (debut::date))*10 >= 36525
+ORDER BY 
+	max_homeruns DESC;
+
+
+--Marc's
+SELECT b.yearid, 
+	p.namefirst,
+	p.namelast,
+	hr AS home_runs
+FROM people AS p
+JOIN batting AS b
+USING(playerid)
+WHERE b.yearid = 2016
+	AND b.hr >=1
+	AND (SELECT MAX(hr) FROM batting WHERE playerid = p.playerid) = b.hr
+	AND (SELECT MAX(yearid) - MIN(yearid) FROM Batting WHERE playerid = p.playerid) >= 9
+ORDER BY home_runs DESC;
+
+--Megan's
+SELECT
+  CONCAT(p.nameFirst, ' ', p.nameLast) AS player_name,
+  b.hr AS hr_2016
+FROM
+  batting AS b
+JOIN people AS p ON b.playerid = p.playerid
+WHERE
+  b.yearid = 2016
+  AND b.hr >= 1
+  AND b.hr = (
+    SELECT MAX(hr)
+    FROM batting
+    WHERE playerid = b.playerid
+  )
+  AND (
+    SELECT COUNT(DISTINCT yearid)
+    FROM batting
+    WHERE playerid = b.playerid
+  ) >= 10
+ORDER BY
+  b.hr DESC;
+
 
 
 -- **Open-ended questions**
